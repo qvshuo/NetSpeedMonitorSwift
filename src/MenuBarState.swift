@@ -38,6 +38,10 @@ final class MenuBarModel {
         presentation.interfaceName
     }
 
+    init() {
+        start()
+    }
+
     func start() {
         guard monitoringTask == nil else {
             return

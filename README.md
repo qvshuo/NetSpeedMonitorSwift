@@ -2,12 +2,14 @@
 
 A minimal menu bar network speed monitor for macOS.
 
-A pure Swift rewrite of [NetSpeedMonitor](https://github.com/elegracer/NetSpeedMonitor).
+A pure Swift rewrite of [elegracer/NetSpeedMonitor](https://github.com/elegracer/NetSpeedMonitor).
 
 ## Requirements
 
-- macOS 26.0 or later
+- macOS 14.6 or later
 - Apple Silicon (arm64)
+
+Tested only on macOS 26.
 
 ## Build & Run
 

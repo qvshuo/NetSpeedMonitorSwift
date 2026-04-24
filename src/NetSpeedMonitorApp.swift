@@ -10,9 +10,6 @@ struct NetSpeedMonitorApp: App {
                 .environment(menuBarModel)
         } label: {
             Image(nsImage: menuBarModel.currentIcon)
-                .task {
-                    menuBarModel.start()
-                }
         }
         .menuBarExtraStyle(.menu)
     }
