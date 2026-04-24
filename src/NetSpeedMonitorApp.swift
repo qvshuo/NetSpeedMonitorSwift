@@ -2,14 +2,17 @@ import SwiftUI
 
 @main
 struct NetSpeedMonitorApp: App {
-    @StateObject private var menuBarState = MenuBarState()
+    @State private var menuBarModel = MenuBarModel()
     
     var body: some Scene {
         MenuBarExtra {
             MenuContentView()
-                .environmentObject(menuBarState)
+                .environment(menuBarModel)
         } label: {
-            Image(nsImage: menuBarState.currentIcon)
+            Image(nsImage: menuBarModel.currentIcon)
+                .task {
+                    menuBarModel.start()
+                }
         }
         .menuBarExtraStyle(.menu)
     }

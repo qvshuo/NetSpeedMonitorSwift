@@ -34,6 +34,7 @@ xcrun swiftc \
     src/MenuBarState.swift \
     src/MenuContentView.swift \
     src/MenuBarIconGenerator.swift \
+    src/NetworkInterfaceResolver.swift \
     src/NetworkStatsMonitor.swift
 
 cat > "$CONTENTS_DIR/Info.plist" <<EOF

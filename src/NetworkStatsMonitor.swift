@@ -14,7 +14,7 @@ private struct InterfaceSnapshot {
     let isUp: Bool
 }
 
-struct NetworkStatsMonitor {
+struct NetworkRateSampler {
     private let clock = ContinuousClock()
     private var previousSnapshot: InterfaceSnapshot?
     private var previousInterfaceName: String?

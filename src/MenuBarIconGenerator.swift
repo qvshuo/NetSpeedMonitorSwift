@@ -4,7 +4,7 @@ final class MenuBarIconGenerator {
     private static let iconSize = NSSize(width: 82, height: 24)
     
     static func generateIcon(
-        text: String,
+        presentation: MenuBarPresentation,
         font: NSFont = .monospacedSystemFont(ofSize: 9.5, weight: .semibold)
     ) -> NSImage {
         let image = NSImage(size: iconSize, flipped: false) { rect in
@@ -16,7 +16,7 @@ final class MenuBarIconGenerator {
                 .paragraphStyle: style
             ]
 
-            let textSize = text.size(withAttributes: attributes)
+            let textSize = presentation.iconText.size(withAttributes: attributes)
             let textRect = NSRect(
                 x: (rect.width - textSize.width) / 2,
                 y: (rect.height - textSize.height) / 2,
@@ -24,7 +24,7 @@ final class MenuBarIconGenerator {
                 height: textSize.height
             )
 
-            text.draw(in: textRect, withAttributes: attributes)
+            presentation.iconText.draw(in: textRect, withAttributes: attributes)
 
             return true
         }

@@ -1,11 +1,11 @@
 import SwiftUI
 
 struct MenuContentView: View {
-    @EnvironmentObject var menuBarState: MenuBarState
+    @Environment(MenuBarModel.self) private var menuBarModel
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Interface: \(menuBarState.monitoredInterfaceName)")
+            Text("Interface: \(menuBarModel.interfaceDisplayName)")
             Divider()
             
             Section {
