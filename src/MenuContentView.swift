@@ -8,10 +8,8 @@ struct MenuContentView: View {
             Text("Interface: \(menuBarModel.interfaceDisplayName)")
             Divider()
             
-            Section {
-                Button("Quit") {
-                    NSApplication.shared.terminate(nil)
-                }
+            Button("Quit") {
+                NSApplication.shared.terminate(nil)
             }
         }
         .fixedSize()

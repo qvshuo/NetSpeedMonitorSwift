@@ -73,7 +73,7 @@ struct NetworkRateSampler {
         return nil
     }
 
-    private mutating func makeRate(name: String, currentSnapshot: InterfaceSnapshot) -> InterfaceRate {
+    private func makeRate(name: String, currentSnapshot: InterfaceSnapshot) -> InterfaceRate {
         guard previousInterfaceName == name,
               let previousSnapshot,
               currentSnapshot.isUp else {
