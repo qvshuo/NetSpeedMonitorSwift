@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="128" height="128" src="NetSpeedMonitorSwift/Assets.xcassets/AppIcon.appiconset/icon_512x512.png">
+  <img width="128" height="128" src="src/Assets.xcassets/AppIcon.appiconset/icon_512x512.png">
 </p>
 
 # NetSpeedMonitorSwift
