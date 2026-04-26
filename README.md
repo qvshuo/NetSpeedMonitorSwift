@@ -10,7 +10,7 @@ A pure Swift rewrite of [elegracer/NetSpeedMonitor](https://github.com/elegracer
 
 ## Installation
 
-### Download Latest Precompiled Version
+### Download from Releases
 
 Download the precompiled app from [GitHub Releases](https://github.com/qvshuo/NetSpeedMonitorSwift/releases/latest), unzip and move it to the **Applications** folder.
 
