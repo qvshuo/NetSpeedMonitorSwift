@@ -5,6 +5,21 @@ struct InterfaceRate {
     let name: String
     let inputBytesPerSecond: Double
     let outputBytesPerSecond: Double
+
+    var totalBytesPerSecond: Double {
+        inputBytesPerSecond + outputBytesPerSecond
+    }
+}
+
+extension [InterfaceRate] {
+    func mostActive() -> InterfaceRate? {
+        filter { $0.totalBytesPerSecond > 0 }
+            .max { $0.totalBytesPerSecond < $1.totalBytesPerSecond }
+    }
+
+    func first(named name: String) -> InterfaceRate? {
+        first { $0.name == name }
+    }
 }
 
 private struct InterfaceSnapshot {
@@ -16,25 +31,32 @@ private struct InterfaceSnapshot {
 
 struct NetworkRateSampler {
     private let clock = ContinuousClock()
-    private var previousSnapshot: InterfaceSnapshot?
-    private var previousInterfaceName: String?
+    private var previousSnapshots: [String: InterfaceSnapshot] = [:]
 
-    mutating func update(interfaceName: String?) -> InterfaceRate? {
-        guard let interfaceName, !interfaceName.isEmpty else {
-            previousSnapshot = nil
-            previousInterfaceName = nil
-            return nil
+    mutating func sample() -> [InterfaceRate] {
+        let snapshots = readSnapshots()
+        defer {
+            if !snapshots.isEmpty {
+                previousSnapshots = snapshots
+            }
         }
 
+        return snapshots.map { name, snapshot in
+            rate(name: name, current: snapshot, previous: previousSnapshots[name])
+        }
+    }
+
+    private func readSnapshots() -> [String: InterfaceSnapshot] {
         var interfaceAddresses: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaceAddresses) == 0, let firstAddress = interfaceAddresses else {
-            return nil
+            return [:]
         }
 
         defer {
             freeifaddrs(interfaceAddresses)
         }
 
+        var snapshots: [String: InterfaceSnapshot] = [:]
         var currentAddress: UnsafeMutablePointer<ifaddrs>? = firstAddress
         while let address = currentAddress {
             let interface = address.pointee
@@ -49,45 +71,31 @@ struct NetworkRateSampler {
                 continue
             }
 
-            let currentInterfaceName = String(cString: interface.ifa_name)
-            guard currentInterfaceName == interfaceName else {
-                continue
-            }
-
             let data = interfaceData.assumingMemoryBound(to: if_data.self).pointee
-            let snapshot = InterfaceSnapshot(
+            snapshots[String(cString: interface.ifa_name)] = InterfaceSnapshot(
                 timestamp: clock.now,
                 inputBytes: data.ifi_ibytes,
                 outputBytes: data.ifi_obytes,
                 isUp: (interface.ifa_flags & UInt32(IFF_UP)) != 0
             )
-
-            let rate = makeRate(name: currentInterfaceName, currentSnapshot: snapshot)
-            previousSnapshot = snapshot
-            previousInterfaceName = currentInterfaceName
-            return rate
         }
 
-        previousSnapshot = nil
-        previousInterfaceName = nil
-        return nil
+        return snapshots
     }
 
-    private func makeRate(name: String, currentSnapshot: InterfaceSnapshot) -> InterfaceRate {
-        guard previousInterfaceName == name,
-              let previousSnapshot,
-              currentSnapshot.isUp else {
+    private func rate(name: String, current: InterfaceSnapshot, previous: InterfaceSnapshot?) -> InterfaceRate {
+        guard let previous, current.isUp else {
             return InterfaceRate(name: name, inputBytesPerSecond: 0.0, outputBytesPerSecond: 0.0)
         }
 
-        let elapsed = previousSnapshot.timestamp.duration(to: currentSnapshot.timestamp)
+        let elapsed = previous.timestamp.duration(to: current.timestamp)
         let deltaSeconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
         guard deltaSeconds <= 60.0 else {
             return InterfaceRate(name: name, inputBytesPerSecond: 0.0, outputBytesPerSecond: 0.0)
         }
 
-        let deltaInputBytes = delta(current: currentSnapshot.inputBytes, previous: previousSnapshot.inputBytes)
-        let deltaOutputBytes = delta(current: currentSnapshot.outputBytes, previous: previousSnapshot.outputBytes)
+        let deltaInputBytes = delta(current: current.inputBytes, previous: previous.inputBytes)
+        let deltaOutputBytes = delta(current: current.outputBytes, previous: previous.outputBytes)
         let divisor = deltaSeconds + 1e-3
 
         return InterfaceRate(

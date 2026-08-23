@@ -22,8 +22,6 @@ struct MenuBarPresentation {
 final class MenuBarModel {
     private(set) var presentation = MenuBarPresentation.empty
 
-    @ObservationIgnored private var monitoredInterface: String?
-    @ObservationIgnored private var ticksSinceInterfaceRefresh = 0
     @ObservationIgnored private var monitoringTask: Task<Void, Never>?
     @ObservationIgnored private var networkRateSampler = NetworkRateSampler()
     @ObservationIgnored private let interfaceResolver = NetworkInterfaceResolver()
@@ -68,7 +66,7 @@ final class MenuBarModel {
     }
 
     private func runMonitoringLoop() async {
-        await refreshStats(forceInterfaceRefresh: true)
+        await refreshStats()
 
         while !Task.isCancelled {
             do {
@@ -81,36 +79,31 @@ final class MenuBarModel {
         }
     }
 
-    private func refreshStats(forceInterfaceRefresh: Bool = false) async {
-        ticksSinceInterfaceRefresh += 1
-        await refreshMonitoredInterface(force: forceInterfaceRefresh)
+    private func refreshStats() async {
+        let rates = networkRateSampler.sample()
 
-        let rate = networkRateSampler.update(interfaceName: monitoredInterface)
-        guard let rate else {
-            updatePresentation(
-                interfaceName: monitoredInterface ?? "Unavailable",
-                downloadSpeed: 0.0,
-                uploadSpeed: 0.0
+        if let rate = rates.mostActive() {
+            present(rate)
+            return
+        }
+
+        if let resolvedInterface = await interfaceResolver.resolveDefaultInterface() {
+            present(
+                rates.first(named: resolvedInterface)
+                    ?? InterfaceRate(name: resolvedInterface, inputBytesPerSecond: 0.0, outputBytesPerSecond: 0.0)
             )
             return
         }
 
+        updatePresentation(interfaceName: "Unavailable", downloadSpeed: 0.0, uploadSpeed: 0.0)
+    }
+
+    private func present(_ rate: InterfaceRate) {
         updatePresentation(
             interfaceName: rate.name,
             downloadSpeed: rate.inputBytesPerSecond,
             uploadSpeed: rate.outputBytesPerSecond
         )
-    }
-
-    private func refreshMonitoredInterface(force: Bool = false) async {
-        guard force || ticksSinceInterfaceRefresh >= 5 else {
-            return
-        }
-
-        ticksSinceInterfaceRefresh = 0
-        let resolvedInterface = await interfaceResolver.resolveDefaultInterface()
-        monitoredInterface = resolvedInterface
-        presentation.interfaceName = resolvedInterface ?? "Unavailable"
     }
 
     private func updatePresentation(interfaceName: String, downloadSpeed: Double, uploadSpeed: Double) {
@@ -123,8 +116,8 @@ final class MenuBarModel {
             downloadText: formattedDownload.text
         )
 
-        logger.info(
-            "interface: \(interfaceName), deltaIn: \(String(format: "%.6f", formattedDownload.value)) \(formattedDownload.metric)/s, deltaOut: \(String(format: "%.6f", formattedUpload.value)) \(formattedUpload.metric)/s"
+        logger.debug(
+            "interface: \(interfaceName, privacy: .public), deltaIn: \(String(format: "%.6f", formattedDownload.value)) \(formattedDownload.metric)/s, deltaOut: \(String(format: "%.6f", formattedUpload.value)) \(formattedUpload.metric)/s"
         )
     }
 
