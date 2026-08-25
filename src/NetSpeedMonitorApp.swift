@@ -3,7 +3,7 @@ import SwiftUI
 @main
 struct NetSpeedMonitorApp: App {
     @State private var menuBarModel = MenuBarModel()
-    
+
     var body: some Scene {
         MenuBarExtra {
             MenuContentView()

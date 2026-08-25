@@ -29,12 +29,16 @@ private struct InterfaceSnapshot {
     let isUp: Bool
 }
 
+/// Reads per-interface byte counters via `getifaddrs` and converts the
+/// deltas between consecutive samples into per-second rates.
 struct NetworkRateSampler {
     private let clock = ContinuousClock()
     private var previousSnapshots: [String: InterfaceSnapshot] = [:]
 
     mutating func sample() -> [InterfaceRate] {
         let snapshots = readSnapshots()
+        // Keep the previous snapshot on transient read failures so the next
+        // successful sample still has a baseline.
         defer {
             if !snapshots.isEmpty {
                 previousSnapshots = snapshots
@@ -90,13 +94,14 @@ struct NetworkRateSampler {
 
         let elapsed = previous.timestamp.duration(to: current.timestamp)
         let deltaSeconds = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        // Skip stale baselines, e.g. after sleep or suspend.
         guard deltaSeconds <= 60.0 else {
             return InterfaceRate(name: name, inputBytesPerSecond: 0.0, outputBytesPerSecond: 0.0)
         }
 
         let deltaInputBytes = delta(current: current.inputBytes, previous: previous.inputBytes)
         let deltaOutputBytes = delta(current: current.outputBytes, previous: previous.outputBytes)
-        let divisor = deltaSeconds + 1e-3
+        let divisor = deltaSeconds + 1e-3  // Avoid division by zero on sub-millisecond samples.
 
         return InterfaceRate(
             name: name,
@@ -105,6 +110,8 @@ struct NetworkRateSampler {
         )
     }
 
+    // Reconstruct the true delta across a uint32 counter wrap-around:
+    // (current + 2^32) - previous.
     private func delta(current: UInt32, previous: UInt32) -> Int64 {
         if current < previous {
             return Int64(current) + Int64(UInt32.max) + 1 - Int64(previous)

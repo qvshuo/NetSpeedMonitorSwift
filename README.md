@@ -26,10 +26,8 @@ Open `NetSpeedMonitorSwift.xcodeproj` in Xcode to build.
 
 ## Requirements
 
-- macOS 15.0+
+- macOS 26.0+
 - Apple Silicon
-
-Tested only on macOS 26.
 
 ## Screenshot
 
