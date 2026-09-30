@@ -5,6 +5,9 @@ struct MenuContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if menuBarModel.presentation.samplingFailed {
+                Text("Network data unavailable")
+            }
             Text("Interface: \(menuBarModel.interfaceDisplayName)")
             Divider()
 

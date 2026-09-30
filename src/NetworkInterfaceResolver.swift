@@ -2,25 +2,27 @@ import Foundation
 import SystemConfiguration
 
 actor NetworkInterfaceResolver {
+    private var store: SCDynamicStore?
+
     func resolveDefaultInterface() -> String? {
-        guard let store = SCDynamicStoreCreate(nil, "NetSpeedMonitorSwift" as CFString, nil, nil) else {
+        if store == nil {
+            store = SCDynamicStoreCreate(nil, "NetSpeedMonitorSwift" as CFString, nil, nil)
+        }
+        guard let store else {
             let message = String(validatingCString: SCErrorString(SCError())) ?? "unknown error"
             logger.warning("resolveDefaultInterface failed to create dynamic store: \(message)")
             return nil
         }
 
-        let key = SCDynamicStoreKeyCreateNetworkGlobalEntity(nil, kSCDynamicStoreDomainState, kSCEntNetIPv4)
-        guard let value = SCDynamicStoreCopyValue(store, key) as? [String: Any] else {
-            logger.warning("resolveDefaultInterface did not find State:/Network/Global/IPv4")
-            return nil
+        for entity in [kSCEntNetIPv4, kSCEntNetIPv6] {
+            let key = SCDynamicStoreKeyCreateNetworkGlobalEntity(nil, kSCDynamicStoreDomainState, entity)
+            guard let value = SCDynamicStoreCopyValue(store, key) as? [String: Any],
+                  let name = value[kSCDynamicStorePropNetPrimaryInterface as String] as? String else {
+                continue
+            }
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedName.isEmpty { return trimmedName }
         }
-
-        guard let interfaceName = value[kSCDynamicStorePropNetPrimaryInterface as String] as? String else {
-            logger.warning("resolveDefaultInterface missing PrimaryInterface in State:/Network/Global/IPv4")
-            return nil
-        }
-
-        let trimmedName = interfaceName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedName.isEmpty ? nil : trimmedName
+        return nil
     }
 }

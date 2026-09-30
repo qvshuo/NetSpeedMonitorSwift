@@ -1,10 +1,11 @@
 import AppKit
 import Observation
 
-struct MenuBarPresentation {
+struct MenuBarPresentation: Equatable {
     var interfaceName: String
     var uploadText: String
     var downloadText: String
+    var samplingFailed = false
 
     static let empty = MenuBarPresentation(
         interfaceName: "Unavailable",
@@ -17,29 +18,28 @@ struct MenuBarPresentation {
     }
 }
 
+/// Selects a network interface and publishes its throughput.
 @MainActor
 @Observable
 final class MenuBarModel {
     private(set) var presentation = MenuBarPresentation.empty
+    private(set) var currentIcon = MenuBarIconGenerator.generateIcon(presentation: .empty)
 
     @ObservationIgnored private var monitoringTask: Task<Void, Never>?
-    @ObservationIgnored private var networkRateSampler = NetworkRateSampler()
+    @ObservationIgnored private let networkRateSampler = NetworkRateSampler()
     @ObservationIgnored private let interfaceResolver = NetworkInterfaceResolver()
 
-    // Hysteresis: keep the current interface until a challenger wins
-    // `dwellTicks` consecutive samples; switch quickly once it goes idle.
     private static let dwellTicks = 3
     private static let idleSwitchTicks = 1
+
+    // Delay between completed samples.
+    private static let samplingInterval: TimeInterval = 1.0
 
     @ObservationIgnored private var currentInterface: String?
     @ObservationIgnored private var challengerName: String?
     @ObservationIgnored private var challengerStreak = 0
 
-    private let speedMetrics = [" B", "KB", "MB", "GB", "TB"]
-
-    var currentIcon: NSImage {
-        MenuBarIconGenerator.generateIcon(presentation: presentation)
-    }
+    @ObservationIgnored private var wakeObserver: NSObjectProtocol?
 
     var interfaceDisplayName: String {
         presentation.interfaceName
@@ -55,46 +55,71 @@ final class MenuBarModel {
         }
 
         logger.info("startMonitoring")
+        let sampler = networkRateSampler
         monitoringTask = Task { [weak self] in
-            guard let self else {
-                return
+            await sampler.resetBaselines()
+            while !Task.isCancelled {
+                let result = await sampler.sample()
+                guard !Task.isCancelled, self != nil else { return }
+                await self?.refreshStats(from: result)
+                do {
+                    try await Task.sleep(for: .seconds(Self.samplingInterval))
+                } catch {
+                    return
+                }
             }
+        }
 
-            await self.runMonitoringLoop()
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                await self?.handleWake()
+            }
         }
     }
 
     func stop() {
         monitoringTask?.cancel()
         monitoringTask = nil
+        removeWakeObserver()
         currentInterface = nil
         challengerName = nil
         challengerStreak = 0
         logger.info("stopMonitoring")
     }
 
-    deinit {
+    isolated deinit {
         monitoringTask?.cancel()
+        removeWakeObserver()
     }
 
-    private func runMonitoringLoop() async {
-        await refreshStats()
-
-        while !Task.isCancelled {
-            do {
-                try await Task.sleep(for: .seconds(1))
-            } catch {
-                break
-            }
-
-            await refreshStats()
+    private func removeWakeObserver() {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+            self.wakeObserver = nil
         }
     }
 
-    private func refreshStats() async {
-        let rates = networkRateSampler.sample()
+    private func refreshStats(from result: NetworkSampleResult) async {
+        guard !Task.isCancelled else { return }
+        guard case .success(let rates) = result else {
+            challengerName = nil
+            challengerStreak = 0
+            publish(MenuBarPresentation(
+                interfaceName: presentation.interfaceName,
+                uploadText: "    --",
+                downloadText: "    --",
+                samplingFailed: true
+            ))
+            return
+        }
 
         guard let candidate = rates.mostActive() else {
+            challengerName = nil
+            challengerStreak = 0
             await presentFallbackInterface(from: rates)
             return
         }
@@ -109,8 +134,7 @@ final class MenuBarModel {
         let currentRate = currentInterface.flatMap { rates.first(named: $0) }
         let currentIsIdle = currentRate.map { $0.totalBytesPerSecond <= 0 } ?? true
 
-        // A challenger must win `dwellTicks` consecutive samples before replacing
-        // the current interface; a win by any other interface resets the streak.
+        // Require consecutive wins to prevent flapping; switch immediately if idle.
         if candidate.name == challengerName {
             challengerStreak += 1
         } else {
@@ -121,9 +145,19 @@ final class MenuBarModel {
         let requiredStreak = currentIsIdle ? Self.idleSwitchTicks : Self.dwellTicks
         if challengerStreak >= requiredStreak {
             switchLock(to: candidate)
+            present(candidate)
+            return
         }
 
         present(currentRate ?? candidate)
+    }
+
+    private func handleWake() async {
+        guard monitoringTask != nil else { return }
+        await networkRateSampler.resetBaselines()
+        challengerName = nil
+        challengerStreak = 0
+        logger.info("System woke from sleep, reset baselines")
     }
 
     private func switchLock(to interface: InterfaceRate) {
@@ -133,7 +167,10 @@ final class MenuBarModel {
     }
 
     private func presentFallbackInterface(from rates: [InterfaceRate]) async {
-        if let resolvedInterface = await interfaceResolver.resolveDefaultInterface() {
+        let resolvedInterface = await interfaceResolver.resolveDefaultInterface()
+        guard !Task.isCancelled else { return }
+        currentInterface = resolvedInterface
+        if let resolvedInterface {
             present(
                 rates.first(named: resolvedInterface)
                     ?? InterfaceRate(name: resolvedInterface, inputBytesPerSecond: 0.0, outputBytesPerSecond: 0.0)
@@ -153,40 +190,32 @@ final class MenuBarModel {
     }
 
     private func updatePresentation(interfaceName: String, downloadSpeed: Double, uploadSpeed: Double) {
-        let formattedDownload = formatSpeed(downloadSpeed)
-        let formattedUpload = formatSpeed(uploadSpeed)
-
-        presentation = MenuBarPresentation(
+        publish(MenuBarPresentation(
             interfaceName: interfaceName,
-            uploadText: formattedUpload.text,
-            downloadText: formattedDownload.text
-        )
-
-        let inMetric = formattedDownload.metric
-        let outMetric = formattedUpload.metric
-        let deltaIn = String(format: "%.6f", formattedDownload.value)
-        let deltaOut = String(format: "%.6f", formattedUpload.value)
-        logger.debug(
-            "\(interfaceName, privacy: .public): in \(deltaIn) \(inMetric)/s, out \(deltaOut) \(outMetric)/s"
-        )
+            uploadText: Self.formatSpeed(uploadSpeed),
+            downloadText: Self.formatSpeed(downloadSpeed)
+        ))
+        logger.debug("\(interfaceName, privacy: .public): in \(downloadSpeed) B/s, out \(uploadSpeed) B/s")
     }
 
-    private func formatSpeed(_ speed: Double) -> (text: String, value: Double, metric: String) {
-        var value = speed
-        // Leading space in each metric keeps the unit column aligned.
-        var metric = " B"
-
-        for nextMetric in speedMetrics.dropFirst() {
-            if value > 1000.0 {
-                value /= 1024.0
-                metric = nextMetric
-            }
+    private func publish(_ next: MenuBarPresentation) {
+        guard next != presentation else { return }
+        if next.iconText != presentation.iconText {
+            currentIcon = MenuBarIconGenerator.generateIcon(presentation: next)
         }
+        presentation = next
+    }
 
-        return (
-            text: String(format: "%6.2lf %@/s", value, metric),
-            value: value,
-            metric: metric
-        )
+    /// Uses 1024-byte scaling with conventional KB/MB/GB/TB labels.
+    private static func formatSpeed(_ speed: Double) -> String {
+        var value = speed
+        // Pad B to match the two-character units.
+        var metric = " B"
+        for nextMetric in ["KB", "MB", "GB", "TB"] {
+            guard value >= 1024 else { break }
+            value /= 1024
+            metric = nextMetric
+        }
+        return String(format: "%6.2f %@/s", value, metric)
     }
 }

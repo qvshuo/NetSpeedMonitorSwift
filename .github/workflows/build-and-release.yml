@@ -3,9 +3,12 @@ name: Build and Release
 on:
   workflow_dispatch:
 
+concurrency: ${{ github.workflow }}
+
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 20
     permissions:
       contents: write
 
@@ -13,21 +16,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Select Xcode
+        run: |
+          sudo xcode-select --switch /Applications/Xcode_26.6.app/Contents/Developer
+          xcodebuild -version
+
       - name: Build
         run: |
           xcodebuild \
             -project NetSpeedMonitorSwift.xcodeproj \
             -scheme NetSpeedMonitorSwift \
             -configuration Release \
+            -destination 'generic/platform=macOS' \
+            ARCHS=arm64 \
             -derivedDataPath DerivedData \
-            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
             build
 
       - name: Package
         run: |
           APP_PATH="DerivedData/Build/Products/Release/NetSpeedMonitorSwift.app"
+          test "$(lipo -archs "${APP_PATH}/Contents/MacOS/NetSpeedMonitorSwift")" = arm64
           VERSION=$(plutil -extract CFBundleShortVersionString raw "${APP_PATH}/Contents/Info.plist")
           BUILD=$(plutil -extract CFBundleVersion raw "${APP_PATH}/Contents/Info.plist")
           ZIP_NAME="NetSpeedMonitorSwift-${VERSION}.zip"
@@ -41,8 +50,10 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.version }}
+          target_commitish: ${{ github.sha }}
           name: ${{ env.version }}
           generate_release_notes: true
           files: ${{ env.asset_path }}
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
