@@ -6,7 +6,7 @@
 
 A minimal menu bar network speed monitor for macOS.
 
-Built upon [elegracer/NetSpeedMonitor](https://github.com/elegracer/NetSpeedMonitor) and [byrencheema/airstats](https://github.com/byrencheema/airstats).
+Heavily inspired by [elegracer/NetSpeedMonitor](https://github.com/elegracer/NetSpeedMonitor) and [byrencheema/airstats](https://github.com/byrencheema/airstats).
 
 ## Requirements
 
